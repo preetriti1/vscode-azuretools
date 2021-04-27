@@ -6,7 +6,7 @@
 import { ResourceManagementClient } from '@azure/arm-resources';
 import { MessageItem, Progress } from 'vscode';
 import * as types from '../../index';
-import { createResourcesClient } from '../clients';
+import { createResourcesClient, createSubscriptionsClient } from '../clients';
 import { ext } from '../extensionVariables';
 import { localize } from '../localize';
 import { parseError } from '../parseError';
@@ -38,6 +38,16 @@ export class ResourceGroupCreateStep<T extends types.IResourceGroupWizardContext
             if (wizardContext.suppress403Handling || parseError(error).errorType !== '403') {
                 throw error;
             } else {
+                const subClient = await createSubscriptionsClient(wizardContext);
+                const sub = await subClient.subscriptions.get(wizardContext.subscriptionId);
+                // if this is a Sandbox account, pick the only rg available for the user
+                if (sub.subscriptionPolicies?.quotaId && /sponsored/i.test(sub.subscriptionPolicies?.quotaId)) {
+                    const rgs = await resourceClient.resourceGroups.list();
+                    if (rgs.length === 1) {
+                        wizardContext.resourceGroup = rgs[0];
+                        return undefined;
+                    }
+                }
                 const message: string = localize('rgForbidden', 'You do not have permission to create a resource group in subscription "{0}".', wizardContext.subscriptionDisplayName);
                 const selectExisting: MessageItem = { title: localize('selectExisting', 'Select Existing') };
                 wizardContext.telemetry.properties.cancelStep = 'RgNoPermissions';
